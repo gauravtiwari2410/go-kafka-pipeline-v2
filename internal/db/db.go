@@ -6,18 +6,18 @@ import (
 	"os"
 	"time"
 
-	"go-kafka-pipeline/internal/models"
 	"go-kafka-pipeline/internal/metrics"
+	"go-kafka-pipeline/internal/models"
 
-	_ "github.com/microsoft/go-mssqldb"
+	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
 func InitDB() *sql.DB {
 	connStr := os.Getenv("DB_CONN")
 	if connStr == "" {
-		connStr = "sqlserver://sa:Password@123@mssql:1433?database=eventdb"
+		connStr = "postgres://postgres:root@postgres:5432/eventdb?sslmode=disable"
 	}
-	db, err := sql.Open("sqlserver", connStr)
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal("db open error:", err)
 	}
@@ -31,10 +31,10 @@ func UpsertUser(db *sql.DB, e models.UserCreated) {
 	start := time.Now()
 	defer metrics.TrackDBLatency(start)
 
-	_, err := db.Exec(`IF EXISTS (SELECT 1 FROM users WHERE id=@p1)
-		UPDATE users SET name=@p2,email=@p3 WHERE id=@p1
-		ELSE
-		INSERT INTO users(id,name,email) VALUES(@p1,@p2,@p3);`, e.UserID, e.Name, e.Email)
+	_, err := db.Exec(`INSERT INTO users(id, name, email)
+		VALUES($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email;`,
+		e.UserID, e.Name, e.Email)
 	if err != nil {
 		log.Println("UpsertUser error:", err)
 	}
@@ -44,10 +44,10 @@ func UpsertOrder(db *sql.DB, e models.OrderPlaced) {
 	start := time.Now()
 	defer metrics.TrackDBLatency(start)
 
-	_, err := db.Exec(`IF EXISTS (SELECT 1 FROM orders WHERE id=@p1)
-		UPDATE orders SET userId=@p2, amount=@p3 WHERE id=@p1
-		ELSE
-		INSERT INTO orders(id,userId,amount) VALUES(@p1,@p2,@p3);`, e.OrderID, e.UserID, e.Amount)
+	_, err := db.Exec(`INSERT INTO orders(id, userId, amount)
+		VALUES($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE SET userId = EXCLUDED.userId, amount = EXCLUDED.amount;`,
+		e.OrderID, e.UserID, e.Amount)
 	if err != nil {
 		log.Println("UpsertOrder error:", err)
 	}
@@ -57,10 +57,10 @@ func UpsertPayment(db *sql.DB, e models.PaymentSettled) {
 	start := time.Now()
 	defer metrics.TrackDBLatency(start)
 
-	_, err := db.Exec(`IF EXISTS (SELECT 1 FROM payments WHERE id=@p1)
-		UPDATE payments SET orderId=@p2, status=@p3 WHERE id=@p1
-		ELSE
-		INSERT INTO payments(id,orderId,status) VALUES(@p1,@p2,@p3);`, e.PaymentID, e.OrderID, e.Status)
+	_, err := db.Exec(`INSERT INTO payments(id, orderId, status)
+		VALUES($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE SET orderId = EXCLUDED.orderId, status = EXCLUDED.status;`,
+		e.PaymentID, e.OrderID, e.Status)
 	if err != nil {
 		log.Println("UpsertPayment error:", err)
 	}
@@ -70,10 +70,10 @@ func UpsertInventory(db *sql.DB, e models.InventoryAdjusted) {
 	start := time.Now()
 	defer metrics.TrackDBLatency(start)
 
-	_, err := db.Exec(`IF EXISTS (SELECT 1 FROM inventory WHERE sku=@p1)
-		UPDATE inventory SET qty = qty + @p2 WHERE sku=@p1
-		ELSE
-		INSERT INTO inventory(sku,qty) VALUES(@p1,@p2);`, e.SKU, e.Delta)
+	_, err := db.Exec(`INSERT INTO inventory(sku, qty)
+		VALUES($1, $2)
+		ON CONFLICT (sku) DO UPDATE SET qty = inventory.qty + EXCLUDED.qty;`,
+		e.SKU, e.Delta)
 	if err != nil {
 		log.Println("UpsertInventory error:", err)
 	}
