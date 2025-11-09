@@ -16,14 +16,14 @@ func GetUserWithOrders(c *fiber.Ctx, db *sql.DB) error {
 		Email string `json:"email"`
 	}
 
-	// Query users table
-	err := db.QueryRow("SELECT user_id, name, email FROM users WHERE user_id=$1", id).Scan(&user.ID, &user.Name, &user.Email)
+	// ✅ FIXED: column names match table (id, not user_id)
+	err := db.QueryRow("SELECT id, name, email FROM users WHERE id=$1", id).Scan(&user.ID, &user.Name, &user.Email)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "user not found"})
 	}
 
-	// Query last 5 orders for this user
-	rows, err := db.Query("SELECT order_id, amount FROM orders WHERE user_id=$1 ORDER BY order_id DESC LIMIT 5", id)
+	// ✅ FIXED: orders table columns (id, userid, amount)
+	rows, err := db.Query("SELECT id, amount FROM orders WHERE userid=$1 ORDER BY id DESC LIMIT 5", id)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to fetch orders"})
 	}
@@ -38,7 +38,7 @@ func GetUserWithOrders(c *fiber.Ctx, db *sql.DB) error {
 	for rows.Next() {
 		var o Order
 		if err := rows.Scan(&o.ID, &o.Amount); err != nil {
-			continue // skip if error in this row
+			continue
 		}
 		orders = append(orders, o)
 	}
@@ -55,13 +55,13 @@ func GetOrderWithPayment(c *fiber.Ctx, db *sql.DB) error {
 		Amount float64 `json:"amount"`
 	}
 
-	// Query orders table
-	err := db.QueryRow("SELECT order_id, user_id, amount FROM orders WHERE order_id=$1", id).Scan(&order.ID, &order.UserID, &order.Amount)
+	// ✅ FIXED: orders table columns
+	err := db.QueryRow("SELECT id, userid, amount FROM orders WHERE id=$1", id).Scan(&order.ID, &order.UserID, &order.Amount)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "order not found"})
 	}
 
-	// Query payment status
+	// ✅ payments table: adjust if needed
 	var status string
 	err = db.QueryRow("SELECT status FROM payments WHERE order_id=$1", id).Scan(&status)
 	if err != nil {
