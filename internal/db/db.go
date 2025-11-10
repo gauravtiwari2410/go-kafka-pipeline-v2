@@ -79,12 +79,12 @@ func UpsertPayment(db *sql.DB, e models.PaymentSettled) {
 
 	query := `
 	MERGE payments AS target
-	USING (SELECT @p1 AS id, @p2 AS orderId, @p3 AS status) AS src
+	USING (SELECT @p1 AS id, @p2 AS order_id, @p3 AS status) AS src
 	ON (target.id = src.id)
 	WHEN MATCHED THEN 
-		UPDATE SET orderId = src.orderId, status = src.status
+		UPDATE SET order_id = src.order_id, status = src.status
 	WHEN NOT MATCHED THEN 
-		INSERT (id, orderId, status) VALUES (src.id, src.orderId, src.status);`
+		INSERT (id, order_id, status) VALUES (src.id, src.order_id, src.status);`
 
 	_, err := db.Exec(query, e.PaymentID, e.OrderID, e.Status)
 	if err != nil {

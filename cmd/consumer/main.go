@@ -25,14 +25,15 @@ func main() {
 	for {
 		m, err := reader.FetchMessage(ctx)
 		if err != nil {
-			log.Println("fetch error:", err)
+			log.Printf("[ERROR] fetching message: %v", err)
 			continue
 		}
 
-		log.Printf("fetched msg key=%s offset=%d", string(m.Key), m.Offset)
+		log.Printf("[FETCHED] key=%s partition=%d offset=%d value=%s", string(m.Key), m.Partition, m.Offset, string(m.Value))
 
 		var base map[string]interface{}
 		if err := json.Unmarshal(m.Value, &base); err != nil {
+			log.Printf("[DLQ] Invalid JSON, pushing to DLQ. Error: %v", err)
 			redis.PushToDLQ(ctx, string(m.Value), err.Error())
 			reader.CommitMessages(ctx, m)
 			continue
@@ -43,54 +44,79 @@ func main() {
 			eventID = v
 		}
 
-		log.Printf("processing eventId=%s key=%s offset=%d", eventID, string(m.Key), m.Offset)
+		log.Printf("[PROCESSING] eventId=%s key=%s offset=%d baseKeys=%v", eventID, string(m.Key), m.Offset, getMapKeys(base))
 
 		processed := false
+		var eventType string
 
 		// route by shape
-		if base["userId"] != nil && base["name"] != nil {
+		switch {
+		case base["userId"] != nil && base["name"] != nil:
+			eventType = "UserCreated"
 			var e models.UserCreated
 			if err := json.Unmarshal(m.Value, &e); err == nil {
 				db.UpsertUser(sqlDB, e)
 				processed = true
 			} else {
+				log.Printf("[DLQ] %s JSON unmarshal error: %v", eventType, err)
 				redis.PushToDLQ(ctx, string(m.Value), err.Error())
 			}
-		} else if base["orderId"] != nil && base["amount"] != nil {
+
+		case base["orderId"] != nil && base["amount"] != nil:
+			eventType = "OrderPlaced"
 			var e models.OrderPlaced
 			if err := json.Unmarshal(m.Value, &e); err == nil {
 				db.UpsertOrder(sqlDB, e)
 				processed = true
 			} else {
+				log.Printf("[DLQ] %s JSON unmarshal error: %v", eventType, err)
 				redis.PushToDLQ(ctx, string(m.Value), err.Error())
 			}
-		} else if base["paymentId"] != nil {
+
+		case base["paymentId"] != nil:
+			eventType = "PaymentSettled"
 			var e models.PaymentSettled
 			if err := json.Unmarshal(m.Value, &e); err == nil {
 				db.UpsertPayment(sqlDB, e)
 				processed = true
 			} else {
+				log.Printf("[DLQ] %s JSON unmarshal error: %v", eventType, err)
 				redis.PushToDLQ(ctx, string(m.Value), err.Error())
 			}
-		} else if base["sku"] != nil {
+
+		case base["sku"] != nil:
+			eventType = "InventoryAdjusted"
 			var e models.InventoryAdjusted
 			if err := json.Unmarshal(m.Value, &e); err == nil {
 				db.UpsertInventory(sqlDB, e)
 				processed = true
 			} else {
+				log.Printf("[DLQ] %s JSON unmarshal error: %v", eventType, err)
 				redis.PushToDLQ(ctx, string(m.Value), err.Error())
 			}
-		} else {
+
+		default:
+			eventType = "Unknown"
+			log.Printf("[DLQ] Unknown event shape. Keys: %v", getMapKeys(base))
 			redis.PushToDLQ(ctx, string(m.Value), "unknown event shape")
 		}
 
 		if processed {
 			metrics.MessagesProcessed.Inc()
-			log.Printf("processed eventId=%s", eventID)
+			log.Printf("[PROCESSED] eventId=%s key=%s type=%s offset=%d", eventID, string(m.Key), eventType, m.Offset)
 		}
 
 		if err := reader.CommitMessages(ctx, m); err != nil {
-			log.Printf("commit error eventId=%s err=%v", eventID, err)
+			log.Printf("[COMMIT ERROR] eventId=%s type=%s offset=%d err=%v", eventID, eventType, m.Offset, err)
 		}
 	}
+}
+
+// helper function to print map keys for logging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
