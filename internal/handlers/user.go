@@ -68,3 +68,18 @@ func GetOrderWithPayment(c *fiber.Ctx, db *sql.DB) error {
 
 	return c.JSON(fiber.Map{"order": order, "paymentStatus": status})
 }
+
+func GetTotalUser(c *fiber.Ctx, db *sql.DB) error {
+
+	var user struct {
+		Count int `json:"totaluser"`
+	}
+
+	// ✅ Use @p1 instead of $1 for MSSQL
+	err := db.QueryRow("SELECT Count(*) FROM users").Scan(&user.Count)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "user not found"})
+	}
+
+	return c.JSON(fiber.Map{"total count": user})
+}

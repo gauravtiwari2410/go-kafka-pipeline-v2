@@ -18,6 +18,10 @@ func main() {
 	sqlDB := db.InitDB()
 	defer sqlDB.Close()
 
+	app.Get("/users", func(c *fiber.Ctx) error {
+		return handlers.GetTotalUser(c, sqlDB)
+	})
+
 	app.Get("/users/:id", func(c *fiber.Ctx) error {
 		return handlers.GetUserWithOrders(c, sqlDB)
 	})

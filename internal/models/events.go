@@ -5,6 +5,7 @@ type UserCreated struct {
 	UserID  string `json:"userId"`
 	Name    string `json:"name"`
 	Email   string `json:"email"`
+	Age     int    `json:"age"`
 }
 
 type OrderPlaced struct {
